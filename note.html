@@ -1,1 +1,162 @@
 
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Générateur de Note Audio</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      background-color: #f4f4f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .card {
+      background: #ffffff;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 400px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      color: #333;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 5px;
+    }
+
+    input[type="number"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="number"]:focus {
+      border-color: #0066ff;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background-color: #0066ff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #0052cc;
+    }
+
+    button:disabled {
+      background-color: #a0a0a0;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h1>Générateur de Note</h1>
+    
+    <div class="form-group">
+      <label for="frequency">Fréquence (Hz) :</label>
+      <input type="number" id="frequency" value="440" min="20" max="20000" step="any">
+    </div>
+
+    <div class="form-group">
+      <label for="duration">Durée (secondes) :</label>
+      <input type="number" id="duration" value="1" min="0.1" max="10" step="0.1">
+    </div>
+
+    <button id="playBtn">Jouer la note</button>
+  </div>
+
+  <script>
+    const playBtn = document.getElementById('playBtn');
+    let audioCtx = null;
+
+    playBtn.addEventListener('click', () => {
+      const freq = parseFloat(document.getElementById('frequency').value);
+      const duration = parseFloat(document.getElementById('duration').value);
+
+      if (isNaN(freq) || isNaN(duration) || freq <= 0 || duration <= 0) {
+        alert('Veuillez entrer des valeurs valides.');
+        return;
+      }
+
+      // Initialisation du contexte Web Audio (à la suite d'un clic utilisateur)
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
+      // Reprise du contexte si suspendu par le navigateur
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+
+      // Création de l'oscillateur (générateur de son) et du gain (volume)
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.type = 'sine'; // Signal sinusoïdal
+      oscillator.frequency.value = freq;
+
+      // Gestion de l'enveloppe sonore pour éviter les "clicks" audio
+      const now = audioCtx.currentTime;
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(0.3, now + 0.02); // Attaque douce
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration); // Extinction progressive
+
+      // Connexions des nœuds audio
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      // Démarrage et arrêt
+      oscillator.start(now);
+      oscillator.stop(now + duration);
+
+      // Désactivation temporaire du bouton pendant la lecture
+      playBtn.disabled = true;
+      setTimeout(() => {
+        playBtn.disabled = false;
+      }, duration * 1000);
+    });
+  </script>
+
+</body>
+</html>
