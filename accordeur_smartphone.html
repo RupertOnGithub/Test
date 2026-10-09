@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Analyseur de Fréquence & Accordeur</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #38bdf8;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --success: #22c55e;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1rem;
+    }
+
+    .container {
+      background-color: var(--card);
+      border-radius: 1.5rem;
+      padding: 2.5rem 1.5rem;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: var(--text);
+    }
+
+    p.subtitle {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-bottom: 2rem;
+    }
+
+    .display {
+      margin: 2rem 0;
+    }
+
+    .frequency {
+      font-size: 3.5rem;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .unit {
+      font-size: 1.25rem;
+      color: var(--muted);
+      margin-left: 0.25rem;
+    }
+
+    .note {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-top: 0.5rem;
+      min-height: 2.5rem;
+      color: var(--success);
+    }
+
+    .gauge-container {
+      width: 100%;
+      height: 8px;
+      background-color: var(--bg);
+      border-radius: 4px;
+      margin: 1.5rem 0;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .gauge-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--success));
+      transition: width 0.1s ease-out;
+      border-radius: 4px;
+    }
+
+    button {
+      background-color: var(--accent);
+      color: var(--bg);
+      border: none;
+      padding: 1rem 2rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 9999px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      width: 100%;
+      touch-action: manipulation;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button.active {
+      background-color: #ef4444;
+      color: white;
+    }
+
+    .status {
+      margin-top: 1rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Détecteur de Hauteur</h1>
+    <p class="subtitle">Analyse en temps réel via le microphone</p>
+
+    <div class="display">
+      <div class="frequency"><span id="freq">0</span><span class="unit">Hz</span></div>
+      <div class="note" id="note">--</div>
+    </div>
+
+    <div class="gauge-container">
+      <div class="gauge-bar" id="gauge"></div>
+    </div>
+
+    <button id="toggleBtn">Démarrer la mesure</button>
+    <div class="status" id="status">Accès au micro non démarré</div>
+  </div>
+
+  <script>
+    let audioContext = null;
+    let analyser = null;
+    let mediaStream = null;
+    let isListening = false;
+    let animationId = null;
+    let wakeLock = null;
+
+    const freqEl = document.getElementById('freq');
+    const noteEl = document.getElementById('note');
+    const gaugeEl = document.getElementById('gauge');
+    const btn = document.getElementById('toggleBtn');
+    const statusEl = document.getElementById('status');
+
+    const NOTES = ["Do", "Do#", "Ré", "Ré#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"];
+
+    btn.addEventListener('click', () => {
+      if (isListening) {
+        stopListening();
+      } else {
+        startListening();
+      }
+    });
+
+    async function startListening() {
+      try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        
+        source.connect(analyser);
+
+        // Maintien de l'écran allumé sur smartphone (Wake Lock API)
+        if ('wakeLock' in navigator) {
+          try {
+            wakeLock = await navigator.wakeLock.request('screen');
+          } catch (err) {
+            console.log('Wake Lock non disponible');
+          }
+        }
+
+        isListening = true;
+        btn.textContent = "Arrêter";
+        btn.classList.add('active');
+        statusEl.textContent = "Écoute en cours...";
+
+        update();
+      } catch (err) {
+        statusEl.textContent = "Erreur d'accès au microphone : " + err.message;
+      }
+    }
+
+    async function stopListening() {
+      if (animationId) cancelAnimationFrame(animationId);
+      if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
+      if (audioContext) audioContext.close();
+
+      // Libération de la mise en veille
+      if (wakeLock !== null) {
+        await wakeLock.release();
+        wakeLock = null;
+      }
+
+      isListening = false;
+      btn.textContent = "Démarrer la mesure";
+      btn.classList.remove('active');
+      statusEl.textContent = "Mesure arrêtée";
+      freqEl.textContent = "0";
+      noteEl.textContent = "--";
+      gaugeEl.style.width = "0%";
+    }
+
+    function update() {
+      const buffer = new Float32Array(analyser.fftSize);
+      analyser.getFloatTimeDomainData(buffer);
+
+      const pitch = autoCorrelate(buffer, audioContext.sampleRate);
+
+      if (pitch === -1) {
+        freqEl.textContent = "--";
+        noteEl.textContent = "--";
+        gaugeEl.style.width = "0%";
+      } else {
+        const freq = Math.round(pitch);
+        freqEl.textContent = freq;
+        
+        const noteInfo = getNoteFromFrequency(pitch);
+        noteEl.textContent = `${noteInfo.note} ${noteInfo.octave}`;
+
+        const percentage = Math.min(Math.max((pitch / 1000) * 100, 0), 100);
+        gaugeEl.style.width = `${percentage}%`;
+      }
+
+      animationId = requestAnimationFrame(update);
+    }
+
+    function autoCorrelate(buffer, sampleRate) {
+      let SIZE = buffer.length;
+      let rms = 0;
+
+      for (let i = 0; i < SIZE; i++) {
+        let val = buffer[i];
+        rms += val * val;
+      }
+      rms = Math.sqrt(rms / SIZE);
+
+      if (rms < 0.01) return -1;
+
+      let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+      for (let i = 0; i < SIZE / 2; i++) {
+        if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
+      }
+      for (let i = 1; i < SIZE / 2; i++) {
+        if (Math.abs(buffer[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+      }
+
+      buffer = buffer.slice(r1, r2);
+      SIZE = buffer.length;
+
+      let c = new Array(SIZE).fill(0);
+      for (let i = 0; i < SIZE; i++) {
+        for (let j = 0; j < SIZE - i; j++) {
+          c[i] = c[i] + buffer[j] * buffer[j + i];
+        }
+      }
+
+      let d = 0;
+      while (c[d] > c[d + 1]) d++;
+      let maxval = -1, maxpos = -1;
+      for (let i = d; i < SIZE; i++) {
+        if (c[i] > maxval) {
+          maxval = c[i];
+          maxpos = i;
+        }
+      }
+
+      let T0 = maxpos;
+
+      let x1 = c[T0 - 1], x2 = c[T0], x3 = c[T0 + 1];
+      let a = (x1 + x3 - 2 * x2) / 2;
+      let b = (x3 - x1) / 2;
+      if (a) T0 = T0 - b / (2 * a);
+
+      return sampleRate / T0;
+    }
+
+    function getNoteFromFrequency(frequency) {
+      const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
+      const midi = Math.round(noteNum) + 69;
+      const noteIndex = (midi % 12 + 12) % 12;
+      const octave = Math.floor(midi / 12) - 1;
+      
+      return {
+        note: NOTES[noteIndex],
+        octave: octave
+      };
+    }
+  </script>
+</body>
+</html>
