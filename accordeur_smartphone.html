@@ -317,50 +317,53 @@
       const buffer = new Float32Array(analyser.fftSize);
       analyser.getFloatTimeDomainData(buffer);
 
-      const pitch = autoCorrelate(buffer, audioContext.sampleRate);
+      let SIZE = buffer.length;
+      let rms = 0;
+      for (let i = 0; i < SIZE; i++) {
+        let val = buffer[i];
+        rms += val * val;
+      }
+      rms = Math.sqrt(rms / SIZE);
 
-      if (pitch === -1) {
-        freqEl.textContent = "--";
-        noteEl.textContent = "--";
-        centsEl.textContent = "-- cents";
-        expectedFreqEl.textContent = "--";
-        tuneIndicatorEl.textContent = "--";
-        gaugeEl.style.width = "0%";
-      } else {
-        const freq = Math.round(pitch);
-        freqEl.textContent = freq;
+      const volumePercent = Math.min(Math.max(rms * 300, 0), 100);
+      gaugeEl.style.width = `${volumePercent}%`;
 
-        const noteNum = 12 * (Math.log(pitch / 440) / Math.log(2));
-        const midi = Math.round(noteNum) + 69;
-        const noteIndex = (midi % 12 + 12) % 12;
-        const octave = Math.floor(midi / 12) - 1;
+      if (volumePercent > 25) {
+        const pitch = autoCorrelate(buffer, audioContext.sampleRate);
 
-        const selectedTemp = temperamentSelect.value;
-        const freqTarget = getTargetFrequency(noteIndex, octave, selectedTemp);
+        if (pitch !== -1) {
+          const freq = Math.round(pitch);
+          freqEl.textContent = freq;
 
-        const centsDeviation = 1200 * (Math.log(pitch / freqTarget) / Math.log(2));
+          const noteNum = 12 * (Math.log(pitch / 440) / Math.log(2));
+          const midi = Math.round(noteNum) + 69;
+          const noteIndex = (midi % 12 + 12) % 12;
+          const octave = Math.floor(midi / 12) - 1;
 
-        noteEl.textContent = `${NOTES[noteIndex]} ${octave}`;
-        
-        const sign = centsDeviation >= 0 ? "+" : "";
-        centsEl.textContent = `${sign}${centsDeviation.toFixed(1)} cents`;
-        expectedFreqEl.textContent = freqTarget.toFixed(1);
+          const selectedTemp = temperamentSelect.value;
+          const freqTarget = getTargetFrequency(noteIndex, octave, selectedTemp);
 
-        let indicator = "";
-        if (centsDeviation < -1.5) {
-          indicator = "↑ (Monter)";
-          tuneIndicatorEl.style.color = "#38bdf8";
-        } else if (centsDeviation > 1.5) {
-          indicator = "↓ (Descendre)";
-          tuneIndicatorEl.style.color = "#ef4444";
-        } else {
-          indicator = "= (Juste)";
-          tuneIndicatorEl.style.color = "var(--success)";
+          const centsDeviation = 1200 * (Math.log(pitch / freqTarget) / Math.log(2));
+
+          noteEl.textContent = `${NOTES[noteIndex]} ${octave}`;
+          
+          const sign = centsDeviation >= 0 ? "+" : "";
+          centsEl.textContent = `${sign}${centsDeviation.toFixed(1)} cents`;
+          expectedFreqEl.textContent = freqTarget.toFixed(1);
+
+          let indicator = "";
+          if (centsDeviation < -1.5) {
+            indicator = "↑ (Monter)";
+            tuneIndicatorEl.style.color = "#38bdf8";
+          } else if (centsDeviation > 1.5) {
+            indicator = "↓ (Descendre)";
+            tuneIndicatorEl.style.color = "#ef4444";
+          } else {
+            indicator = "= (Juste)";
+            tuneIndicatorEl.style.color = "var(--success)";
+          }
+          tuneIndicatorEl.textContent = indicator;
         }
-        tuneIndicatorEl.textContent = indicator;
-
-        const percentage = Math.min(Math.max(((centsDeviation + 50) / 100) * 100, 0), 100);
-        gaugeEl.style.width = `${percentage}%`;
       }
 
       animationId = requestAnimationFrame(update);
