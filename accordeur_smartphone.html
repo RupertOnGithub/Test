@@ -127,6 +127,37 @@
       font-size: 0.75rem;
       color: var(--muted);
     }
+
+    .control-group {
+      margin-bottom: 1.5rem;
+      text-align: left;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 0.875rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    select {
+      width: 100%;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      background-color: var(--bg);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 1rem;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .cents-display {
+      font-size: 1rem;
+      color: var(--muted);
+      margin-top: 0.5rem;
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
@@ -135,9 +166,26 @@
     <h1>Détecteur de Hauteur</h1>
     <p class="subtitle">Analyse en temps réel via le microphone</p>
 
+    <div class="control-group">
+      <label for="temperamentSelect">Tempérament :</label>
+      <select id="temperamentSelect">
+        <option value="equal">Gamme tempérée</option>
+        <option value="meso1_4">Mésotonique 1/4 de comma</option>
+        <option value="meso1_6">Mésotonique 1/6 de comma</option>
+        <option value="meso1_8">Mésotonique 1/8 de comma</option>
+        <option value="ordinaire">Tempérament ordinaire</option>
+        <option value="vallotti">Vallotti</option>
+        <option value="rameau">Rameau</option>
+        <option value="corrette">Corrette</option>
+      </select>
+    </div>
+
     <div class="display">
       <div class="frequency"><span id="freq">0</span><span class="unit">Hz</span></div>
       <div class="note" id="note">--</div>
+      <div class="cents-display" id="cents">-- cents</div>
+      <div style="font-size: 0.875rem; color: var(--muted); margin-top: 0.35rem;">Attendu : <span id="expectedFreq">--</span> Hz</div>
+      <div id="tuneIndicator" style="font-size: 1.125rem; font-weight: bold; margin-top: 0.5rem; color: var(--success);">--</div>
     </div>
 
     <div class="gauge-container">
@@ -158,11 +206,50 @@
 
     const freqEl = document.getElementById('freq');
     const noteEl = document.getElementById('note');
+    const centsEl = document.getElementById('cents');
+    const expectedFreqEl = document.getElementById('expectedFreq');
+    const tuneIndicatorEl = document.getElementById('tuneIndicator');
     const gaugeEl = document.getElementById('gauge');
     const btn = document.getElementById('toggleBtn');
     const statusEl = document.getElementById('status');
+    const temperamentSelect = document.getElementById('temperamentSelect');
 
     const NOTES = ["Do", "Do#", "Ré", "Ré#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"];
+
+    const TEMPERAMENTS = {
+      equal: "equal",
+      meso1_4: "meso1_4",
+      meso1_6: "meso1_6",
+      meso1_8: "meso1_8",
+      ordinaire: "ordinaire",
+      vallotti: "vallotti",
+      rameau: "rameau",
+      corrette: "corrette"
+    };
+
+    function getTargetFrequency(noteIndex, octave, temperament) {
+      if (temperament.startsWith('meso')) {
+        const mesoFreqs = {
+          meso1_4: [264.00, 275.86, 295.16, 315.82, 330.00, 353.09, 368.95, 394.77, 412.50, 441.37, 472.26, 493.47],
+          meso1_6: [264.00, 277.86, 295.77, 314.84, 331.37, 352.73, 371.25, 395.18, 415.93, 442.74, 471.28, 496.03],
+          meso1_8: [264.00, 278.87, 296.08, 314.35, 332.06, 352.55, 372.40, 395.39, 417.66, 443.43, 470.79, 497.31]
+        };
+        const baseFreq = mesoFreqs[temperament][noteIndex];
+        return baseFreq * Math.pow(2, octave - 4);
+      } else {
+        const CENTS_OFFSETS = {
+          equal:     [  0.0,   0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0],
+          ordinaire: [ 11.9,  -6.5,  5.3,  2.3, -1.7, 15.5, -8.8,  8.8, -4.9,  0.0,  3.0, -8.8],
+          vallotti:  [  5.7,  -4.7,  1.9,  2.3, -2.6,  2.0, -3.7,  1.4, -7.8,  0.0,  2.0, -3.5],
+          rameau:    [ 10.3,  -2.9,  3.4, -4.6, -3.4, 13.7, -4.9,  6.8, -1.0,  0.0,  4.6, -6.8],
+          corrette:  [ 11.9, -12.4,  5.3,  1.2, -1.7, 15.5, -8.8,  8.8, -8.7,  0.0,  5.4, -8.8]
+        };
+        const midi = (octave + 1) * 12 + noteIndex;
+        const freqEq = 440 * Math.pow(2, (midi - 69) / 12);
+        const centsOffset = CENTS_OFFSETS[temperament][noteIndex];
+        return freqEq * Math.pow(2, centsOffset / 1200);
+      }
+    }
 
     btn.addEventListener('click', () => {
       if (isListening) {
@@ -220,6 +307,9 @@
       statusEl.textContent = "Mesure arrêtée";
       freqEl.textContent = "0";
       noteEl.textContent = "--";
+      centsEl.textContent = "-- cents";
+      expectedFreqEl.textContent = "--";
+      tuneIndicatorEl.textContent = "--";
       gaugeEl.style.width = "0%";
     }
 
@@ -232,15 +322,44 @@
       if (pitch === -1) {
         freqEl.textContent = "--";
         noteEl.textContent = "--";
+        centsEl.textContent = "-- cents";
+        expectedFreqEl.textContent = "--";
+        tuneIndicatorEl.textContent = "--";
         gaugeEl.style.width = "0%";
       } else {
         const freq = Math.round(pitch);
         freqEl.textContent = freq;
-        
-        const noteInfo = getNoteFromFrequency(pitch);
-        noteEl.textContent = `${noteInfo.note} ${noteInfo.octave}`;
 
-        const percentage = Math.min(Math.max((pitch / 1000) * 100, 0), 100);
+        const noteNum = 12 * (Math.log(pitch / 440) / Math.log(2));
+        const midi = Math.round(noteNum) + 69;
+        const noteIndex = (midi % 12 + 12) % 12;
+        const octave = Math.floor(midi / 12) - 1;
+
+        const selectedTemp = temperamentSelect.value;
+        const freqTarget = getTargetFrequency(noteIndex, octave, selectedTemp);
+
+        const centsDeviation = 1200 * (Math.log(pitch / freqTarget) / Math.log(2));
+
+        noteEl.textContent = `${NOTES[noteIndex]} ${octave}`;
+        
+        const sign = centsDeviation >= 0 ? "+" : "";
+        centsEl.textContent = `${sign}${centsDeviation.toFixed(1)} cents`;
+        expectedFreqEl.textContent = freqTarget.toFixed(1);
+
+        let indicator = "";
+        if (centsDeviation < -1.5) {
+          indicator = "↑ (Monter)";
+          tuneIndicatorEl.style.color = "#38bdf8";
+        } else if (centsDeviation > 1.5) {
+          indicator = "↓ (Descendre)";
+          tuneIndicatorEl.style.color = "#ef4444";
+        } else {
+          indicator = "= (Juste)";
+          tuneIndicatorEl.style.color = "var(--success)";
+        }
+        tuneIndicatorEl.textContent = indicator;
+
+        const percentage = Math.min(Math.max(((centsDeviation + 50) / 100) * 100, 0), 100);
         gaugeEl.style.width = `${percentage}%`;
       }
 
